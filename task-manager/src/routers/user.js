@@ -3,9 +3,18 @@ const User = require('../models/user')
 const router = new express.Router()
 const auth = require('../middleware/authentication')
 const multer = require('multer')
+const sharp = require('sharp')
 
 const upload = multer({
-    dest: 'avatars'
+    limits: {
+        fileSize: 10000000
+    },
+    fileFilter(req, file, cb){
+        if(!file.originalname.match(/\.(JPG|JPEG|PNG)/)){
+            cb(new Error('File type not supported'))
+        }
+        cb(undefined, true)
+    }
 })
 
 // POST requests
@@ -52,14 +61,31 @@ router.post('/users/logout-all', auth, async (req, res) => {
     }
 })
 
-router.post('/users/profile/upload-avatar',upload.single('avatar') , (req, res) => {
+router.post('/users/profile/upload-avatar', auth, upload.single('avatar'), async (req, res) => {
+    const buffer = await sharp(req.file.buffer).resize({  height: 250, width: 250 }).png().toBuffer()
+    req.user.avatar = buffer
+    await req.user.save()
     res.send()
+}, (error, req, res, next) => {
+    res.status(400).send(error.message)
 })
-
 
 // GET requests
 router.get('/users/profile', auth, async (req, res) => {
     res.send(req.user)
+})
+
+router.get('/users/:id/avatar', async (req, res) => {
+    try{
+        const user = await User.findById(req.params.id)
+        if(!user || !user.avatar){
+            throw new Error('Unable to find user or avatar.')
+        }
+        res.set('Content-Type', 'image/png')
+        res.send(user.avatar)
+    }catch(e){
+        res.status(404).send()
+    }
 })
 
 // PATCH requests
@@ -87,6 +113,12 @@ router.delete('/users/profile', auth, async (req, res) => {
     }catch(e){
         res.status(500).send()
     }
+})
+
+router.delete('/users/profile/delete-avatar', auth, async (req, res) => {
+    req.user.avatar = undefined
+    await req.user.save()
+    res.send(req.user)
 })
 
 module.exports = router
